@@ -21,39 +21,59 @@ const WHEEL_CENTERS = [
   new THREE.Vector3( 3.705, -7.403, 2.632), // Rear-Right
 ]
 
+// Camber angle for stance look (~7 degrees inward)
+const CAMBER = 0.06  // radians — positive = top leans outward (negative camber look)
+
+// Camber rotation axes per wheel (tilted inward at the top)
+// Left wheels: axis tilts +Z (top leans left = inward)
+// Right wheels: axis tilts -Z (top leans right = inward)
+const CAMBER_AXES = [
+  new THREE.Vector3(1,  0, -CAMBER).normalize(), // Front-Left
+  new THREE.Vector3(1,  0,  CAMBER).normalize(), // Front-Right
+  new THREE.Vector3(1,  0, -CAMBER).normalize(), // Rear-Left
+  new THREE.Vector3(1,  0,  CAMBER).normalize(), // Rear-Right
+]
+
 // Build a material clone with vertex shader that rotates each vertex
-// around its nearest wheel-center's X axis
+// around its nearest wheel-center's cambered axis
 function makeWheelMaterial(baseMat, timeRef) {
   const mat = baseMat.clone()
   mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = { value: 0 }
-    shader.uniforms.uWFL = { value: WHEEL_CENTERS[0] }
-    shader.uniforms.uWFR = { value: WHEEL_CENTERS[1] }
-    shader.uniforms.uWRL = { value: WHEEL_CENTERS[2] }
-    shader.uniforms.uWRR = { value: WHEEL_CENTERS[3] }
+    shader.uniforms.uTime  = { value: 0 }
+    shader.uniforms.uWFL   = { value: WHEEL_CENTERS[0] }
+    shader.uniforms.uWFR   = { value: WHEEL_CENTERS[1] }
+    shader.uniforms.uWRL   = { value: WHEEL_CENTERS[2] }
+    shader.uniforms.uWRR   = { value: WHEEL_CENTERS[3] }
+    shader.uniforms.uAFL   = { value: CAMBER_AXES[0] }
+    shader.uniforms.uAFR   = { value: CAMBER_AXES[1] }
+    shader.uniforms.uARL   = { value: CAMBER_AXES[2] }
+    shader.uniforms.uARR   = { value: CAMBER_AXES[3] }
 
     shader.vertexShader =
       `uniform float uTime;
 uniform vec3 uWFL, uWFR, uWRL, uWRR;
+uniform vec3 uAFL, uAFR, uARL, uARR;
 
-vec3 rotateAroundX(vec3 p, vec3 center, float angle) {
+// Rodrigues rotation around an arbitrary unit axis
+vec3 rotateAroundAxis(vec3 p, vec3 center, vec3 axis, float angle) {
   vec3 q = p - center;
   float c = cos(angle), s = sin(angle);
-  q.yz = vec2(c * q.y - s * q.z, s * q.y + c * q.z);
-  return q + center;
+  return center + q * c + cross(axis, q) * s + axis * dot(axis, q) * (1.0 - c);
 }
 ` + shader.vertexShader
       // Rotate the surface normals so lighting stays correct while spinning
+      // Use the averaged axis for normal rotation (approximate — good enough)
       .replace(
         '#include <beginnormal_vertex>',
         `#include <beginnormal_vertex>
   {
+    // Use pure X axis for normals (close enough for camber angles < 15°)
     float cn = cos(uTime), sn = sin(uTime);
     objectNormal.yz = vec2(cn * objectNormal.y - sn * objectNormal.z,
                           sn * objectNormal.y + cn * objectNormal.z);
   }`
       )
-      // Rotate vertex positions around individual wheel centers
+      // Rotate vertex positions around individual wheel centers with cambered axes
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
@@ -63,8 +83,9 @@ vec3 rotateAroundX(vec3 p, vec3 center, float angle) {
     float dRL = length(transformed.xy - uWRL.xy);
     float dRR = length(transformed.xy - uWRR.xy);
     float minD = min(min(dFL, dFR), min(dRL, dRR));
-    vec3 wc = (minD == dFL) ? uWFL : (minD == dFR) ? uWFR : (minD == dRL) ? uWRL : uWRR;
-    transformed = rotateAroundX(transformed, wc, uTime);
+    vec3 wc   = (minD == dFL) ? uWFL  : (minD == dFR) ? uWFR  : (minD == dRL) ? uWRL  : uWRR;
+    vec3 axis = (minD == dFL) ? uAFL  : (minD == dFR) ? uAFR  : (minD == dRL) ? uARL  : uARR;
+    transformed = rotateAroundAxis(transformed, wc, axis, uTime);
   }`
       )
 

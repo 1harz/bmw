@@ -5,7 +5,7 @@
   --color-text: #e0e0e0;
   --color-accent: #0066b1;
   --color-accent-2: #003399;
-  --color-muted: rgba(224, 224, 224, 0.5);
+  --color-muted: rgba(255, 255, 255, 0.85);
   --font-display: 'Outfit', sans-serif;
   --font-body: 'Inter', sans-serif;
 }
@@ -340,8 +340,8 @@ body, html {
 /* ===== Phone 3D Canvas Container ===== */
 .phone-canvas-container {
   position: absolute;
-  width: 400px;
-  height: 600px;
+  width: 420px;
+  height: 660px;
   z-index: 10;
   pointer-events: auto;
   user-select: none;
@@ -349,12 +349,30 @@ body, html {
 
 .phone-canvas-container.left {
   left: 5vw;
-  top: 10vh;
+  top: 8vh;
 }
 
 .phone-canvas-container.right {
   right: 5vw;
-  top: 10vh;
+  top: 8vh;
+}
+
+/* Larger screens — 1920×1080 and above */
+@media (min-width: 1600px) {
+  .phone-canvas-container {
+    width: 600px;
+    height: 900px;
+  }
+
+  .phone-canvas-container.left {
+    left: 6vw;
+    top: 5vh;
+  }
+
+  .phone-canvas-container.right {
+    right: 6vw;
+    top: 5vh;
+  }
 }
 
 

@@ -27,7 +27,7 @@ function LoadingScreen({ started, setStarted, audioRef }) {
       const timer = setTimeout(() => {
         setStarted(true);
         if (audioRef.current) {
-          audioRef.current.volume = 0.5;
+          audioRef.current.volume = 0.3;
           audioRef.current.play().catch(e => console.log('Audio play failed', e));
         }
       }, 800);
@@ -55,17 +55,17 @@ function Phone3DModel({ src, audioRef, inView, interactionRef }) {
   const groupRef = useRef();
   const texture = useVideoTexture(src, { muted: true, loop: true, start: true });
 
-  // Rotation state: current, target and inertia velocity
+  // Rotation state
   const rotState = useRef({
     rotX: 0, rotY: 0,
     velX: 0, velY: 0,
-    floatY: 0, floatPhase: 0,
+    floatPhase: 0,
   });
 
   useEffect(() => {
     if (inView) {
       if (audioRef.current) audioRef.current.pause();
-      if (texture?.image) { texture.image.muted = false; texture.image.volume = 0.8; }
+      if (texture?.image) { texture.image.muted = false; texture.image.volume = 0.48; }
     } else {
       if (audioRef.current) audioRef.current.play().catch(() => {});
       if (texture?.image) { texture.image.muted = true; }
@@ -82,36 +82,44 @@ function Phone3DModel({ src, audioRef, inView, interactionRef }) {
     const floatTarget = Math.sin(r.floatPhase) * 0.12;
 
     if (ia.dragging) {
-      // Direct drag — apply drag delta as velocity
+      // Click + drag: free rotation via velocity
       r.velX = ia.dragDeltaY * 0.018;
       r.velY = ia.dragDeltaX * 0.018;
       ia.dragDeltaX = 0;
       ia.dragDeltaY = 0;
+
+      // Inertia damping while dragging
+      r.velX *= 0.88;
+      r.velY *= 0.88;
+      r.rotX += r.velX;
+      r.rotY += r.velY;
     } else if (ia.hovering) {
-      // Hover impulse: nudge velocity in mouse movement direction
-      r.velX += ia.hoverDY * 0.004;
-      r.velY += ia.hoverDX * 0.004;
-      ia.hoverDX *= 0.85;
-      ia.hoverDY *= 0.85;
-    }
+      // Hover: phone tilts toward mouse position (max ±0.45 rad)
+      const maxTilt = 0.45;
+      const targetRotY =  ia.mouseNormX * maxTilt;  // left-right
+      const targetRotX = -ia.mouseNormY * maxTilt;  // up-down (inverted Y)
 
-    // Inertia damping
-    const damping = ia.dragging ? 0.9 : 0.93;
-    r.velX *= damping;
-    r.velY *= damping;
-    r.rotX += r.velX;
-    r.rotY += r.velY;
+      // Smooth follow
+      r.rotX = THREE.MathUtils.lerp(r.rotX, targetRotX, 0.06);
+      r.rotY = THREE.MathUtils.lerp(r.rotY, targetRotY, 0.06);
+      // Kill velocity so drag starts fresh
+      r.velX = 0;
+      r.velY = 0;
+    } else {
+      // Idle: inertia + very slow spring back
+      r.velX *= 0.95;
+      r.velY *= 0.95;
+      r.rotX += r.velX;
+      r.rotY += r.velY;
 
-    // Spring back to 0 when idle (not hovering, not dragging, low velocity)
-    if (!ia.dragging && !ia.hovering) {
-      const stiffness = 0.06; // spring strength toward origin
-      r.rotX += (0 - r.rotX) * stiffness;
-      r.rotY += (0 - r.rotY) * stiffness;
+      // Very gentle spring — stiffness 0.012 (was 0.06)
+      r.rotX += (0 - r.rotX) * 0.012;
+      r.rotY += (0 - r.rotY) * 0.012;
     }
 
     // Lerp actual mesh rotation
-    groupRef.current.rotation.x = THREE.MathUtils.lerp(groupRef.current.rotation.x, r.rotX, 0.18);
-    groupRef.current.rotation.y = THREE.MathUtils.lerp(groupRef.current.rotation.y, r.rotY, 0.18);
+    groupRef.current.rotation.x = THREE.MathUtils.lerp(groupRef.current.rotation.x, r.rotX, 0.14);
+    groupRef.current.rotation.y = THREE.MathUtils.lerp(groupRef.current.rotation.y, r.rotY, 0.14);
     groupRef.current.position.y = THREE.MathUtils.lerp(groupRef.current.position.y, floatTarget, 0.05);
   });
 
@@ -173,6 +181,7 @@ function Phone3DModel({ src, audioRef, inView, interactionRef }) {
 
 function PhoneVideo({ src, side = "left", audioRef }) {
   const [inView, setInView] = useState(false);
+  const containerRef = useRef(null);
 
   // Shared interaction state passed to 3D model via ref
   const interactionRef = useRef({
@@ -180,8 +189,9 @@ function PhoneVideo({ src, side = "left", audioRef }) {
     dragging: false,
     dragDeltaX: 0,
     dragDeltaY: 0,
-    hoverDX: 0,
-    hoverDY: 0,
+    // Normalised mouse position within container: -1 … +1
+    mouseNormX: 0,
+    mouseNormY: 0,
     lastMouseX: 0,
     lastMouseY: 0,
   });
@@ -192,19 +202,30 @@ function PhoneVideo({ src, side = "left", audioRef }) {
     const dy = e.clientY - ia.lastMouseY;
     ia.lastMouseX = e.clientX;
     ia.lastMouseY = e.clientY;
+
+    // Compute normalised position inside the container (-1 to +1)
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      ia.mouseNormX = ((e.clientX - rect.left) / rect.width)  * 2 - 1;
+      ia.mouseNormY = ((e.clientY - rect.top)  / rect.height) * 2 - 1;
+    }
+
     if (ia.dragging) {
       ia.dragDeltaX += dx;
       ia.dragDeltaY += dy;
-    } else {
-      ia.hoverDX = dx;
-      ia.hoverDY = dy;
     }
   };
 
   const handleMouseEnter = (e) => {
-    interactionRef.current.hovering = true;
-    interactionRef.current.lastMouseX = e.clientX;
-    interactionRef.current.lastMouseY = e.clientY;
+    const ia = interactionRef.current;
+    ia.hovering = true;
+    ia.lastMouseX = e.clientX;
+    ia.lastMouseY = e.clientY;
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      ia.mouseNormX = ((e.clientX - rect.left) / rect.width)  * 2 - 1;
+      ia.mouseNormY = ((e.clientY - rect.top)  / rect.height) * 2 - 1;
+    }
   };
 
   const handleMouseLeave = () => {
@@ -224,6 +245,7 @@ function PhoneVideo({ src, side = "left", audioRef }) {
 
   return (
     <motion.div
+      ref={containerRef}
       className={`phone-canvas-container ${side}`}
       initial={{ opacity: 0, y: 150 }}
       whileInView={{ opacity: 1, y: 0 }}
@@ -482,14 +504,14 @@ function DroneCameraRig() {
       );
     }
 
-    // Interpolação suave para a câmera
-    state.camera.position.lerp(targetCamPos, 0.05);
+    // Interpolação suave para a câmera — valores baixos = transições mais cinematográficas
+    state.camera.position.lerp(targetCamPos, 0.022);
 
     // Sistema suave para o lookAt (onde o drone está mirando)
     if (!state.camera.userData.lookTarget) {
       state.camera.userData.lookTarget = new THREE.Vector3(0, 0, 0);
     }
-    state.camera.userData.lookTarget.lerp(targetLookAt, 0.08);
+    state.camera.userData.lookTarget.lerp(targetLookAt, 0.032);
     state.camera.lookAt(state.camera.userData.lookTarget);
   });
 
