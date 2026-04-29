@@ -7,22 +7,102 @@ Source: https://sketchfab.com/3d-models/bmw-e36-m3-762b90efd3dc413cb61c3e3c8097b
 Title: BMW E36 M3
 */
 
-import React from 'react'
+import React, { useRef, useMemo } from 'react'
 import { useGLTF } from '@react-three/drei'
+import { useFrame } from '@react-three/fiber'
+import * as THREE from 'three'
+
+// Wheel centers in model-local space (found by analysing vertex data)
+// Model is rotated [-PI/2, 0, 0] in parent, so wheel axle = local X axis
+const WHEEL_CENTERS = [
+  new THREE.Vector3(-3.705,  6.522, 2.630), // Front-Left
+  new THREE.Vector3( 3.705,  6.522, 2.630), // Front-Right
+  new THREE.Vector3(-3.705, -7.403, 2.632), // Rear-Left
+  new THREE.Vector3( 3.705, -7.403, 2.632), // Rear-Right
+]
+
+// Build a material clone with vertex shader that rotates each vertex
+// around its nearest wheel-center's X axis
+function makeWheelMaterial(baseMat, timeRef) {
+  const mat = baseMat.clone()
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = { value: 0 }
+    shader.uniforms.uWFL = { value: WHEEL_CENTERS[0] }
+    shader.uniforms.uWFR = { value: WHEEL_CENTERS[1] }
+    shader.uniforms.uWRL = { value: WHEEL_CENTERS[2] }
+    shader.uniforms.uWRR = { value: WHEEL_CENTERS[3] }
+
+    shader.vertexShader =
+      `uniform float uTime;
+uniform vec3 uWFL, uWFR, uWRL, uWRR;
+
+vec3 rotateAroundX(vec3 p, vec3 center, float angle) {
+  vec3 q = p - center;
+  float c = cos(angle), s = sin(angle);
+  q.yz = vec2(c * q.y - s * q.z, s * q.y + c * q.z);
+  return q + center;
+}
+` + shader.vertexShader
+      // Rotate the surface normals so lighting stays correct while spinning
+      .replace(
+        '#include <beginnormal_vertex>',
+        `#include <beginnormal_vertex>
+  {
+    float cn = cos(uTime), sn = sin(uTime);
+    objectNormal.yz = vec2(cn * objectNormal.y - sn * objectNormal.z,
+                          sn * objectNormal.y + cn * objectNormal.z);
+  }`
+      )
+      // Rotate vertex positions around individual wheel centers
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+  {
+    float dFL = length(transformed.xy - uWFL.xy);
+    float dFR = length(transformed.xy - uWFR.xy);
+    float dRL = length(transformed.xy - uWRL.xy);
+    float dRR = length(transformed.xy - uWRR.xy);
+    float minD = min(min(dFL, dFR), min(dRL, dRR));
+    vec3 wc = (minD == dFL) ? uWFL : (minD == dFR) ? uWFR : (minD == dRL) ? uWRL : uWRR;
+    transformed = rotateAroundX(transformed, wc, uTime);
+  }`
+      )
+
+    mat.userData.shader = shader
+  }
+  mat.needsUpdate = true
+  return mat
+}
+
+function WheelMesh({ geometry, baseMaterial, timeRef, ...props }) {
+  const mat = useMemo(() => makeWheelMaterial(baseMaterial, timeRef), [baseMaterial])
+  useFrame((_, delta) => {
+    timeRef.current -= delta * 15
+    if (mat.userData.shader) {
+      mat.userData.shader.uniforms.uTime.value = timeRef.current
+    }
+  })
+  return <mesh geometry={geometry} material={mat} castShadow receiveShadow {...props} />
+}
 
 export default function Model(props) {
   const { nodes, materials } = useGLTF('/bmw_e36_m3.glb')
+  const timeRef = useRef(0)
+
   return (
     <group {...props} dispose={null}>
       <group name="Sketchfab_model" rotation={[-Math.PI / 2, 0, 0]}>
-        <mesh name="Object_2" castShadow receiveShadow geometry={nodes.Object_2.geometry} material={materials.HeadLights} />
-        <mesh name="Object_3" castShadow receiveShadow geometry={nodes.Object_3.geometry} material={materials.Light} />
-        <mesh name="Object_4" castShadow receiveShadow geometry={nodes.Object_4.geometry} material={materials.LicencePlate} />
-        <mesh name="Object_5" castShadow receiveShadow geometry={nodes.Object_5.geometry} material={materials.Mirror} />
-        <mesh name="Object_6" castShadow receiveShadow geometry={nodes.Object_6.geometry} material={materials['Tire.001']} />
-        <mesh name="Object_7" castShadow receiveShadow geometry={nodes.Object_7.geometry} material={materials['SeconadryColor.001']} />
-        <mesh name="Object_8" castShadow receiveShadow geometry={nodes.Object_8.geometry} material={materials['Textures.001']} />
-        <mesh name="Object_9" castShadow receiveShadow geometry={nodes.Object_9.geometry} material={materials.RearLights} />
+        <mesh name="Object_2"  castShadow receiveShadow geometry={nodes.Object_2.geometry}  material={materials.HeadLights} />
+        <mesh name="Object_3"  castShadow receiveShadow geometry={nodes.Object_3.geometry}  material={materials.Light} />
+        <mesh name="Object_4"  castShadow receiveShadow geometry={nodes.Object_4.geometry}  material={materials.LicencePlate} />
+        <mesh name="Object_5"  castShadow receiveShadow geometry={nodes.Object_5.geometry}  material={materials.Mirror} />
+
+        {/* Animated wheels — vertex shader rotates each vertex around its own wheel center */}
+        <WheelMesh name="Object_6" geometry={nodes.Object_6.geometry} baseMaterial={materials['Tire.001']}          timeRef={timeRef} />
+        <WheelMesh name="Object_7" geometry={nodes.Object_7.geometry} baseMaterial={materials['SeconadryColor.001']} timeRef={timeRef} />
+
+        <mesh name="Object_8"  castShadow receiveShadow geometry={nodes.Object_8.geometry}  material={materials['Textures.001']} />
+        <mesh name="Object_9"  castShadow receiveShadow geometry={nodes.Object_9.geometry}  material={materials.RearLights} />
         <mesh name="Object_10" castShadow receiveShadow geometry={nodes.Object_10.geometry} material={materials.Cover} />
         <mesh name="Object_11" castShadow receiveShadow geometry={nodes.Object_11.geometry} material={materials.CarPaint} />
         <mesh name="Object_12" castShadow receiveShadow geometry={nodes.Object_12.geometry} material={materials.Exhaust} />

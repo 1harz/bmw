@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { motion } from 'framer-motion';
 import BMWE36 from './components/BMWE36';
 
+
 import bgMusic from './assets/fundo.mp3';
 import edit1Video from './assets/edit1.mp4';
 import edit2Video from './assets/edit2.mp4';
@@ -321,19 +322,33 @@ function MovingRoad() {
           <meshBasicMaterial color="#0066b1" transparent opacity={0.6} />
         </mesh>
         
-        {/* Pilares laterais passando voando */}
-        {Array.from({ length: 10 }).map((_, i) => (
-          <group key={`pillar-${i}`} position={[0, 0, -60 + i * 15]}>
-            <mesh position={[-4, 1.5, 0]}>
-              <boxGeometry args={[0.2, 4, 0.2]} />
-              <meshStandardMaterial color="#222" metalness={0.8} />
-            </mesh>
-            <mesh position={[4, 1.5, 0]}>
-              <boxGeometry args={[0.2, 4, 0.2]} />
-              <meshStandardMaterial color="#222" metalness={0.8} />
-            </mesh>
-          </group>
-        ))}
+        {/* Racing kerb stripes on both sides (alternating red/white) */}
+        {Array.from({ length: 20 }).map((_, i) => {
+          const isRed = i % 2 === 0;
+          const z = -80 + i * 8;
+          return (
+            <group key={`kerb-${i}`}>
+              {/* Left kerb */}
+              <mesh position={[-3.3, -0.535, z]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[0.5, 7.5]} />
+                <meshStandardMaterial
+                  color={isRed ? '#cc0000' : '#f0f0f0'}
+                  roughness={0.4}
+                  metalness={0.1}
+                />
+              </mesh>
+              {/* Right kerb */}
+              <mesh position={[3.3, -0.535, z]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[0.5, 7.5]} />
+                <meshStandardMaterial
+                  color={isRed ? '#cc0000' : '#f0f0f0'}
+                  roughness={0.4}
+                  metalness={0.1}
+                />
+              </mesh>
+            </group>
+          );
+        })}
       </group>
 
       {/* Grid High-Tech fixo (Drei) para dar sensação de profundidade */}
@@ -366,6 +381,47 @@ function MovingRoad() {
           metalness={0.8}
         />
       </mesh>
+    </group>
+  );
+}
+
+/* ================================================================
+   ATMOSPHERIC BACKGROUND — Adds depth without breaking aesthetics
+   ================================================================ */
+function AtmosphericBackground() {
+  const meshRef = useRef();
+
+  useFrame(({ clock }) => {
+    if (meshRef.current) {
+      // Very slow drift — almost imperceptible but adds life
+      meshRef.current.rotation.y = clock.getElapsedTime() * 0.008;
+    }
+  });
+
+  return (
+    <group>
+      {/* Large inverted sphere — acts as a sky dome */}
+      <mesh ref={meshRef} scale={[-1, -1, -1]}>
+        <sphereGeometry args={[80, 32, 32]} />
+        <meshStandardMaterial
+          color="#000810"
+          emissive="#001428"
+          emissiveIntensity={0.6}
+          roughness={1}
+          metalness={0}
+          side={THREE.BackSide}
+        />
+      </mesh>
+
+      {/* Blue volumetric accent light from above-left */}
+      <pointLight position={[-20, 20, -10]} intensity={3} color="#0044aa" distance={60} decay={2} />
+      {/* Warm silver fill from right */}
+      <pointLight position={[25, 5, 5]} intensity={1.5} color="#c8d8f0" distance={50} decay={2} />
+      {/* Deep horizon glow */}
+      <pointLight position={[0, -5, -30]} intensity={2} color="#0033aa" distance={80} decay={1.5} />
+
+      {/* Hemisphere sky/ground color */}
+      <hemisphereLight args={['#001a3a', '#050505', 0.8]} />
     </group>
   );
 }
@@ -452,9 +508,19 @@ export default function App() {
       <audio ref={audioRef} src={bgMusic} loop />
       <LoadingScreen started={started} setStarted={setStarted} audioRef={audioRef} />
 
+      {/* Credit badge */}
+      <a
+        href="https://github.com/1harz"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="credit-badge"
+      >
+        Desenvolvido por <strong>1harz</strong>
+      </a>
+
       <Canvas camera={{ position: [0, 0.5, -5], fov: 45 }} dpr={[1, 2]} shadows gl={{ antialias: true }}>
-        <color attach="background" args={['#030303']} />
-        <fog attach="fog" args={['#030303', 10, 50]} />
+        <color attach="background" args={['#000810']} />
+        <fog attach="fog" args={['#000d1a', 12, 55]} />
 
         {/* Iluminação */}
         <ambientLight intensity={0.5} />
@@ -465,12 +531,13 @@ export default function App() {
 
         <ScrollControls pages={6} damping={0.12}>
           <Suspense fallback={null}>
+            <AtmosphericBackground />
             <MovingRoad />
             <DrivingCar />
             <DroneCameraRig />
           </Suspense>
 
-          <Scroll html style={{ width: '100%', height: '100%' }}>
+            <Scroll html style={{ width: '100%', height: '100%' }}>
             <div className="section">
               <div className="section-subtitle">The Ultimate Driving Machine</div>
               <h1 className="hero-title">
@@ -479,10 +546,6 @@ export default function App() {
               <p className="section-body">
                 Uma lenda nascida nas pistas. Potência bruta, equilíbrio perfeito e design que desafia o tempo.
               </p>
-              <div className="scroll-indicator">
-                <span>Scroll</span>
-                <div className="scroll-line"></div>
-              </div>
             </div>
 
             <div className="section section-right">
